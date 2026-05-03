@@ -52,14 +52,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** Sticky single-slot modifier state matching iOS TerminalAccessoryModel. */
 class AccessoryState {
     var active: AccessoryModifier by mutableStateOf(AccessoryModifier.CTRL)
     var armed: Boolean by mutableStateOf(false)
 
     fun toggleArm() { armed = !armed }
     fun selectModifier(m: AccessoryModifier) { active = m; armed = false }
-    /** Pop the armed modifier so the next character is transformed exactly once. */
+
     fun consume(): AccessoryModifier? {
         if (!armed) return null
         armed = false

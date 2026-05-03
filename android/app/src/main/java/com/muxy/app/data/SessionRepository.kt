@@ -49,10 +49,6 @@ import kotlin.time.Duration.Companion.seconds
 
 private const val TAG = "Session"
 
-/**
- * Mirrors ConnectionManager.swift's post-auth state and operations:
- * lists projects, workspaces, worktrees; reacts to server events.
- */
 class SessionRepository(
     private val client: MuxyClient,
     private val scope: CoroutineScope,
@@ -88,12 +84,6 @@ class SessionRepository(
     private val _myClientID = MutableStateFlow<String?>(null)
     val myClientID: StateFlow<String?> = _myClientID.asStateFlow()
 
-    /**
-     * One-shot signal: the next [TerminalView] mount is allowed to silently
-     * auto-takeover the pane regardless of who currently owns it. Set by
-     * deliberate user actions (opening a project, switching tabs); consumed
-     * by the first TerminalView that mounts after the action.
-     */
     private val _consumeAutoTakeover = java.util.concurrent.atomic.AtomicBoolean(false)
     fun armAutoTakeover() { _consumeAutoTakeover.set(true) }
     fun consumeAutoTakeover(): Boolean = _consumeAutoTakeover.getAndSet(false)
@@ -148,10 +138,7 @@ class SessionRepository(
     }
 
     private fun handleEvent(event: com.muxy.app.model.MuxyEvent) {
-        // Routed through the sealed MuxyEventKind so adding a new server event
-        // forces a compile-time decision here rather than silently dropping.
-        // PaneSession owns terminalOutput/Snapshot — they are intentional no-ops
-        // at the repo level.
+
         when (val kind = event.toKind()) {
             is MuxyEventKind.ProjectsChanged -> _projects.value = kind.projects
             is MuxyEventKind.WorkspaceChanged -> _workspace.value = kind.workspace
@@ -168,22 +155,19 @@ class SessionRepository(
                 _paneOwners.value = _paneOwners.value + (dto.paneID to owner)
             }
             is MuxyEventKind.TabChanged -> {
-                // Mac authoritatively pushes a workspaceChanged after tab edits,
-                // so the tab event itself doesn't need state mutation. iOS also
-                // no-ops on .tab (ConnectionManager.swift handleEvent).
+
             }
             is MuxyEventKind.NotificationReceived -> {
                 _notifications.value = listOf(kind.notification) + _notifications.value
             }
             is MuxyEventKind.TerminalOutput,
-            is MuxyEventKind.TerminalSnapshot -> Unit // routed by PaneSession
-            is MuxyEventKind.Unknown -> Unit // already logged in toKind()
+            is MuxyEventKind.TerminalSnapshot -> Unit
+            is MuxyEventKind.Unknown -> Unit
         }
     }
 
     fun setMyClientID(id: String) { _myClientID.value = id }
 
-    /** Drop stale pane-ownership state so a reconnecting client will re-take its panes. */
     fun clearPaneOwners() { _paneOwners.value = emptyMap() }
 
     suspend fun refreshProjects() {
@@ -227,7 +211,7 @@ class SessionRepository(
     fun clearActiveProject() {
         _activeProjectID.value = null
         _workspace.value = null
-        consumeAutoTakeover() // discard any unconsumed arm
+        consumeAutoTakeover()
     }
 
     suspend fun refreshWorkspace(projectID: String) {
@@ -309,7 +293,6 @@ class SessionRepository(
 
     private val panes = mutableMapOf<String, PaneSession>()
 
-    /** Get-or-create the pane session for a given paneID. */
     fun openPane(paneID: String, cols: Int, rows: Int): PaneSession {
         panes[paneID]?.let { return it }
         val pane = PaneSession(

@@ -122,7 +122,7 @@ class ProtocolTest {
 
     @Test
     fun roundTripsResponseWithUnknownResultType() {
-        // Forward-compat: server may add new result types in the future.
+
         val raw = """
             {
               "type": "response",

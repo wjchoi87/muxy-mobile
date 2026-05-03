@@ -20,19 +20,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * Wire format mirrors MuxyShared (Swift):
- *   { "type": "request"|"response"|"event", "payload": { ... } }
- *
- * Request payload: { id, method, params: { type, value } }
- * Response payload: { id, result?: { type, value }, error?: { code, message } }
- * Event payload:    { event, data: { type, value } }
- *
- * For Phase 1 we only need to encode `authenticateDevice` and `pairDevice`,
- * and decode `pairing` results plus errors. Other params/results are kept as
- * raw JsonElement so unknown shapes round-trip without crashing.
- */
-
 val MuxyJson: Json = Json {
     ignoreUnknownKeys = true
     encodeDefaults = false
@@ -110,8 +97,6 @@ fun encodeMessage(message: MuxyMessage): String =
 
 fun decodeMessage(text: String): MuxyMessage =
     MuxyJson.decodeFromString(MuxyMessageSerializer, text)
-
-// --- Phase 1 param/result payloads ---
 
 @Serializable
 data class AuthenticateDeviceParams(

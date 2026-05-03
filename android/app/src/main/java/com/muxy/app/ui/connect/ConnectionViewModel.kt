@@ -58,24 +58,12 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     @Volatile private var isBackgrounded: Boolean = false
 
-    /**
-     * Single coordinator for all connect / reconnect / verify operations.
-     * Without this, three independent entry points (transport-event-driven
-     * silent reconnect, foreground verify, manual reconnect) can fire
-     * concurrently — racing to authenticate on the same socket and producing
-     * duplicate auth attempts, churned pane state, or a stuck Connecting
-     * screen. Funnel everything through `connectionMutex.withLock` and the
-     * race disappears.
-     */
     private val connectionMutex = Mutex()
     @Volatile private var isReconnecting: Boolean = false
     private var transportJob: Job? = null
 
     init {
-        // Observe socket-level events for the lifetime of the ViewModel. When the
-        // socket closes or fails while the user is "Connected", kick off a silent
-        // reconnect with backoff so the app self-heals instead of stranding the
-        // user on a stale screen.
+
         transportJob = viewModelScope.launch {
             client.events.collect { evt ->
                 when (evt) {
@@ -116,10 +104,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun disconnect() {
-        // Order matters: stop pane sessions (which fire releasePane) before
-        // closing the socket, otherwise those releases race the close and
-        // either dispatch on a dead socket or leave the Mac thinking we still
-        // own the panes. stopObserving() also clears local pane state.
+
         session.stopObserving()
         client.disconnect()
         _state.value = ConnectionState.Disconnected
@@ -133,7 +118,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
         if (!authenticateOrPair(credentials, device.name)) return
 
-        // Post-pairing: start observing events and refresh projects.
         session.startObserving()
         session.refreshProjects()
     }
@@ -214,8 +198,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     fun onForeground() {
         isBackgrounded = false
         val device = lastDevice ?: return
-        // If a reconnect is already in flight (transport-event-driven), do not
-        // pile on a second one. The in-flight reconnect will settle the state.
+
         if (isReconnecting) return
         when (_state.value) {
             is ConnectionState.Error -> connect(device)
@@ -234,8 +217,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun verifyOrReconnect(device: SavedDevice) {
-        // Lightweight liveness check: re-list projects with a short timeout.
-        // If it fails, the socket is dead even though OkHttp hasn't surfaced it yet.
+
         val ok = runCatching {
             withTimeoutOrNull(3.seconds) {
                 client.send(listProjectsLikePing(), 3.seconds)
@@ -246,12 +228,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun listProjectsLikePing(): MuxyMessage.Request = listProjectsRequest(newRequestId())
 
-    /**
-     * Public entry: launches a coroutine that takes the connection mutex and
-     * runs the reconnect loop. Serialized against connect() and verify() so
-     * rapid foreground/background or transport-failure storms can't fire
-     * overlapping authenticateDevice requests.
-     */
     private fun reconnectSilently(device: SavedDevice) {
         if (isReconnecting) return
         isReconnecting = true
@@ -264,15 +240,12 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Must be invoked while holding [connectionMutex]. */
     private suspend fun reconnectSilentlyLocked(device: SavedDevice) {
-        // Drop stale ownership so the server's next paneOwnershipChanged
-        // event drives whether we show the TakeOverOverlay.
+
         session.clearPaneOwners()
         val activeProject = session.activeProjectID.value
         val credentials = credentialsStore.load()
 
-        // Retry with capped exponential backoff: 1s, 2s, 4s, 8s, 8s, ...
         var attempt = 0
         while (true) {
             if (isBackgrounded) { delay(2.seconds); continue }
@@ -284,18 +257,10 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         }
         session.startObserving()
         session.refreshProjects()
-        // Refresh the active project's workspace WITHOUT calling
-        // selectProject — that would clear _workspace, which in turn
-        // tears down the visible TerminalView's PaneSession and would
-        // auto-takeover on recreate. We just want fresh state.
+
         if (activeProject != null) session.refreshWorkspace(activeProject)
     }
 
-    /**
-     * One reconnect attempt that never transitions to Error. Returns true on
-     * successful re-authentication, false on any transport / auth failure so
-     * the caller can back off and retry.
-     */
     private suspend fun tryAuthenticateOnce(device: SavedDevice, credentials: DeviceCredentials): Boolean {
         return try {
             client.connect(device.host, device.port)
@@ -317,7 +282,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             if (pairing.themeFg != null && pairing.themeBg != null) {
                 session.applyInitialTheme(pairing.themeFg, pairing.themeBg, pairing.themePalette ?: emptyList())
             }
-            // Refresh the visible state's clientID without touching the screen.
+
             (_state.value as? ConnectionState.Connected)?.let {
                 _state.value = ConnectionState.Connected(it.deviceName, pairing.clientID)
             }
@@ -328,7 +293,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
-        // Same ordering as disconnect(): stop panes (release) before close.
+
         session.stopObserving()
         client.disconnect()
         super.onCleared()

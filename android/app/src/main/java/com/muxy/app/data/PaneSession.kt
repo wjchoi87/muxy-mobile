@@ -31,15 +31,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 
-/**
- * One PaneSession per terminal pane the user opens. Owns a Termux
- * TerminalEmulator that consumes server-sent PTY bytes and surfaces a stable
- * "tick" counter so Compose can recompose on every output frame.
- *
- * Threading: TerminalEmulator is single-threaded; we synchronize() on the
- * emulator instance before append/sendKey calls to keep render reads consistent
- * with mutations from the network thread.
- */
 class PaneSession(
     val paneID: String,
     initialCols: Int,
@@ -47,7 +38,7 @@ class PaneSession(
     private val client: MuxyClient,
     private val scope: CoroutineScope,
 ) {
-    /** Increments every time the emulator buffer changes; observed by Compose to redraw. */
+
     private val _tick = MutableStateFlow(0L)
     val tick: StateFlow<Long> = _tick.asStateFlow()
 
@@ -56,7 +47,7 @@ class PaneSession(
 
     private val output = object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) {
-            // Bytes the emulator wants to send back to the server (e.g. ENQ, mouse, paste reply).
+
             sendBytes(data, offset, count)
         }
         override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
@@ -70,32 +61,17 @@ class PaneSession(
         output,
         cols,
         rows,
-        /* cellWidthPixels */ 12,
-        /* cellHeightPixels */ 24,
-        /* transcriptRows */ 2000,
-        /* client */ null,
+         12,
+         24,
+         2000,
+         null,
     )
 
     private var eventJob: Job? = null
 
-    /**
-     * When set, incoming PTY bytes are forwarded here instead of being appended
-     * to this PaneSession's own [emulator]. The new termux-backed TerminalView
-     * owns its own [com.termux.terminal.TerminalSession] and emulator, so we
-     * avoid double-rendering by routing bytes there.
-     */
     @Volatile
     var byteSink: ((ByteArray) -> Unit)? = null
 
-    /**
-     * Send `takeOverPane` with the given size. Mirrors iOS's
-     * `attemptAutoTakeOver` and `takeOverCurrentPane` — both call sites pass
-     * the surface's measured cols/rows so the Mac sizes the PTY correctly on
-     * the very first frame instead of starting at a stale 80x24 and reflowing.
-     *
-     * Also updates this PaneSession's cached cols/rows so subsequent resize()
-     * calls compare against the right baseline.
-     */
     suspend fun takeOver(takeoverCols: Int = cols, takeoverRows: Int = rows) {
         val c = takeoverCols.coerceAtLeast(2)
         val r = takeoverRows.coerceAtLeast(2)
@@ -109,12 +85,6 @@ class PaneSession(
         }
     }
 
-    /**
-     * Start consuming terminalOutput / terminalSnapshot events. Does NOT send
-     * `takeOverPane` — the caller (TerminalView) drives takeover once the
-     * surface has measured its real cols/rows, mirroring iOS's
-     * `attemptAutoTakeOver` flow gated on `reportedCols`/`reportedRows`.
-     */
     fun start() {
         eventJob?.cancel()
         eventJob = scope.launch {
@@ -127,7 +97,6 @@ class PaneSession(
         }
     }
 
-    /** Release the pane back to the Mac and stop. */
     fun stop() {
         eventJob?.cancel()
         eventJob = null
@@ -156,7 +125,6 @@ class PaneSession(
         bumpTick()
     }
 
-    /** Forward a scroll gesture to the server (mirrors Swift's terminalScroll). */
     fun scroll(deltaX: Double, deltaY: Double, precise: Boolean) {
         scope.launch {
             runCatching {
@@ -171,13 +139,11 @@ class PaneSession(
         }
     }
 
-    /** Refetch the full PTY-bytes snapshot (e.g. after reconnect, to restore scrollback). */
     suspend fun getContent(): TerminalContentDTO? = runCatching {
         val resp = client.send(getTerminalContentRequest(newRequestId(), paneID), 10.seconds)
         decodeTerminalContent(resp.result)
     }.getOrNull()
 
-    /** Forward keystrokes (already encoded into PTY bytes) to the server. */
     fun sendBytes(bytes: ByteArray) = sendBytes(bytes, 0, bytes.size)
 
     fun sendBytes(data: ByteArray, offset: Int, count: Int) {
@@ -210,10 +176,6 @@ class PaneSession(
         _tick.value = _tick.value + 1
     }
 
-    /**
-     * Push the Mac-broadcast theme (default fg/bg + 16-color palette) into the
-     * Termux emulator so SGR color codes render with the user's theme.
-     */
     fun applyTheme(fg: Long, bg: Long, palette: List<Long>) {
         synchronized(emulator) {
             val colors = emulator.mColors.mCurrentColors

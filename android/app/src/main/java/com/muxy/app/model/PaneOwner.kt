@@ -5,12 +5,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * Mirrors Swift's PaneOwnerDTO enum. Wire shape from Swift's default Codable
- * for an enum-with-associated-values:
- *   {"mac":    {"deviceName": "Mac"}}
- *   {"remote": {"deviceID": "...", "deviceName": "iPhone"}}
- */
 sealed class PaneOwner {
     abstract val displayName: String
 

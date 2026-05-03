@@ -7,15 +7,6 @@ import kotlinx.serialization.builtins.ListSerializer
 
 private const val TAG = "MuxyEvents"
 
-/**
- * Exhaustive sealed model of every server-sent event we can receive. Mirrors
- * Swift's `MuxyEventKind` + `MuxyEventData` (see ios/MuxyShared/MuxyProtocol.swift).
- *
- * Routing through this sealed type — instead of string matching on
- * `MuxyEvent.event` — forces every new event added to the wire protocol to be
- * handled (or explicitly ignored) at the call site. Drift between Swift and
- * Kotlin will surface as an `Unknown` arm at compile time of the `when`.
- */
 sealed class MuxyEventKind {
     data class WorkspaceChanged(val workspace: WorkspaceDTO) : MuxyEventKind()
     data class TabChanged(val tab: TabChangeEventDTO) : MuxyEventKind()
@@ -26,15 +17,9 @@ sealed class MuxyEventKind {
     data class PaneOwnershipChanged(val ownership: PaneOwnershipEventDTO) : MuxyEventKind()
     data class ThemeChanged(val theme: DeviceThemeEventDTO) : MuxyEventKind()
 
-    /** Server sent an event name we don't model yet, or the data payload failed to decode. */
     data class Unknown(val name: String, val reason: String) : MuxyEventKind()
 }
 
-/**
- * Decode a raw [MuxyEvent] into a typed [MuxyEventKind]. Decode failures and
- * unknown event names are surfaced as [MuxyEventKind.Unknown] (logged) so they
- * never silently disappear.
- */
 fun MuxyEvent.toKind(): MuxyEventKind {
     val data = data
     return when (event) {
@@ -87,8 +72,6 @@ private fun <T> decodeListOrNull(
     }.getOrNull()
 }
 
-// ---------- DTOs not previously modelled on Android ----------
-
 @Serializable
 data class NotificationDTO(
     val id: String,
@@ -103,10 +86,7 @@ data class NotificationDTO(
     val timestamp: String,
     val isRead: Boolean,
 ) {
-    /**
-     * Mirrors Swift's `SourceDTO` enum-with-associated-values. Swift's default
-     * Codable representation: `"osc"`, `"socket"`, or `{"aiProvider": "claude"}`.
-     */
+
     @Serializable(with = SourceDTOSerializer::class)
     sealed class SourceDTO {
         @Serializable @SerialName("osc") data object Osc : SourceDTO()

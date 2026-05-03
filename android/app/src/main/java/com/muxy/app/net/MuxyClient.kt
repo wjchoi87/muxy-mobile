@@ -35,7 +35,7 @@ sealed class TransportEvent {
 class MuxyClient {
     private val http = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS) // streaming
+        .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
     private var socket: WebSocket? = null
@@ -64,9 +64,6 @@ class MuxyClient {
         pending.clear()
     }
 
-    /**
-     * Send a request and await the response. Throws on transport failure or timeout.
-     */
     suspend fun send(request: MuxyMessage.Request, timeout: Duration): MuxyResponse {
         val socket = this.socket ?: error("WebSocket not connected")
         val deferred = CompletableDeferred<MuxyResponse>()
@@ -134,7 +131,7 @@ class MuxyClient {
             is MuxyMessage.Event -> {
                 _events.tryEmit(TransportEvent.EventReceived(message.payload))
             }
-            is MuxyMessage.Request -> Unit // server doesn't send requests
+            is MuxyMessage.Request -> Unit
         }
     }
 

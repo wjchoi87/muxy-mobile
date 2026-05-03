@@ -5,7 +5,7 @@ import kotlinx.serialization.json.JsonElement
 
 @Serializable data class TakeOverPaneParams(val paneID: String, val cols: Int, val rows: Int)
 @Serializable data class ReleasePaneParams(val paneID: String)
-@Serializable data class TerminalInputParams(val paneID: String, val bytes: String) // base64
+@Serializable data class TerminalInputParams(val paneID: String, val bytes: String)
 @Serializable data class TerminalResizeParams(val paneID: String, val cols: Int, val rows: Int)
 @Serializable data class TerminalScrollParams(val paneID: String, val deltaX: Double, val deltaY: Double, val precise: Boolean)
 
@@ -13,13 +13,9 @@ import kotlinx.serialization.json.JsonElement
 
 @Serializable data class GetTerminalContentParams(val paneID: String)
 
-/**
- * Mirrors Swift's TerminalContentDTO — full PTY-bytes snapshot of a pane, used
- * to refetch scrollback after a reconnect.
- */
 @Serializable data class TerminalContentDTO(
     val paneID: String,
-    val content: String, // base64-encoded PTY bytes
+    val content: String,
     val cols: Int,
     val rows: Int,
 )
@@ -31,11 +27,6 @@ import kotlinx.serialization.json.JsonElement
     val flags: Int,
 )
 
-/**
- * Mirrors Swift's TerminalCellsDTO — structured cell-by-cell snapshot. Not
- * currently consumed by the Android renderer (we use [TerminalContentDTO]
- * bytes), but decoded so server-sent payloads don't fail parsing.
- */
 @Serializable data class TerminalCellsDTO(
     val paneID: String,
     val cols: Int,

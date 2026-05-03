@@ -55,15 +55,6 @@ import kotlinx.coroutines.launch
 
 private const val NERD_FONT_PATH = "fonts/JetBrainsMonoNerdFontMono-Regular.ttf"
 
-/**
- * Top-level terminal pane. Hosts the vendored termux [TermuxTerminalView] which
- * provides the smooth fling/pinch/scroll/IME machinery, and feeds it bytes from
- * [PaneSession] via a dedicated [MuxyTerminalSession] adapter.
- *
- * The Compose-side `PaneSession` still owns the take-over / release / resize
- * RPCs; we just bypass its internal emulator (via [PaneSession.byteSink]) so
- * the termux view's own emulator does the rendering.
- */
 @Composable
 fun TerminalView(
     paneID: String,
@@ -89,9 +80,7 @@ fun TerminalView(
     val termSession = remember(paneID) { mutableStateOf<MuxyTerminalSession?>(null) }
     val termViewRef = remember(paneID) { mutableStateOf<TermuxTerminalView?>(null) }
     sessionClient.onTextChanged = {
-        // Termux's notifyScreenUpdate only forwards a callback; it does not
-        // schedule a draw. Without this, bytes appended after takeover are
-        // visible only after the next user gesture forces invalidate().
+
         termViewRef.value?.let { v -> v.post { v.invalidate() } }
     }
     val sizeReporter = remember(paneID) { SizeReporter() }
@@ -102,12 +91,9 @@ fun TerminalView(
     var measuredCols by remember(paneID) { mutableStateOf<Int?>(null) }
     var measuredRows by remember(paneID) { mutableStateOf<Int?>(null) }
     var autoTakenPaneID by remember { mutableStateOf<String?>(null) }
-    // Consumed at mount: true only when the user just opened a project or
-    // switched tabs. Bypasses the Mac-owns-it guard for a silent takeover.
+
     val userInitiatedMount = remember(paneID) { session.consumeAutoTakeover() }
-    // Tracks whether the silent-takeover handshake has completed (we became
-    // the confirmed owner at least once). After that, normal overlay rules
-    // apply — including showing the overlay when the Mac steals back.
+
     var ownershipConfirmedOnce by remember(paneID) { mutableStateOf(false) }
 
     val owner = owners[paneID]
@@ -124,8 +110,7 @@ fun TerminalView(
     }
 
     DisposableEffect(paneID) {
-        // 2x2 sentinel so PaneSession can construct; the real takeOverPane is
-        // deferred until the termux view reports its measured cols/rows.
+
         val opened = session.openPane(paneID, 2, 2)
         val ts = MuxyTerminalSession(opened, sessionClient)
         opened.byteSink = { bytes -> ts.acceptRemoteOutput(bytes) }
@@ -152,11 +137,6 @@ fun TerminalView(
         if (isOwnedBySelf) ownershipConfirmedOnce = true
     }
 
-    // Reset the takeover guard whenever the pane has no known owner (e.g.
-    // right after a reconnect cleared paneOwners). Without this, the
-    // already-mounted TerminalView keeps `autoTakenPaneID == paneID` from its
-    // initial mount and never re-takes — the surface stays at alpha=0 with no
-    // overlay (overlay requires owner != null), producing a blank screen.
     LaunchedEffect(owner) {
         if (owner == null && autoTakenPaneID == paneID && !isOwnedBySelf) {
             autoTakenPaneID = null
@@ -168,17 +148,9 @@ fun TerminalView(
         val c = measuredCols ?: return@LaunchedEffect
         val r = measuredRows ?: return@LaunchedEffect
         if (autoTakenPaneID == paneID) return@LaunchedEffect
-        // Auto-takeover policy:
-        //  - If the user just opened a project or switched tabs, takeover
-        //    silently regardless of current owner (userInitiatedMount).
-        //  - If we don't know the owner yet (post-reconnect, before the
-        //    server has re-broadcast paneOwnershipChanged), silently re-take.
-        //    Otherwise the user is stuck on a blank screen until they switch
-        //    tabs.
-        //  - If the Mac currently owns it on a non-user-initiated mount,
-        //    require explicit "Take Over" via the overlay.
+
         if (!userInitiatedMount && owner is PaneOwner.Mac) {
-            autoTakenPaneID = paneID // suppress further attempts for this mount
+            autoTakenPaneID = paneID
             return@LaunchedEffect
         }
         autoTakenPaneID = paneID
@@ -191,10 +163,7 @@ fun TerminalView(
             .imePadding(),
     ) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            // key(paneID): force a fresh AndroidView per tab so the termux
-            // TerminalView is bound to exactly one MuxyTerminalSession for its
-            // lifetime. Reusing the same View across tab switches leaves the
-            // old session's emulator visible and breaks size reporting.
+
             key(paneID) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
@@ -230,19 +199,10 @@ fun TerminalView(
                 )
             }
 
-            // Suppress overlay only during the brief silent-takeover handshake:
-            // user-initiated mount, takeover RPC sent, but server hasn't yet
-            // confirmed us as owner. Once confirmed once, normal overlay rules
-            // apply. If the owner is already known to be the Mac, never
-            // suppress — otherwise a Mac steal-back that races our pending
-            // takeover leaves the screen blank with no way to recover.
             val suppressOverlay =
                 userInitiatedMount && autoTakenPaneID == paneID &&
                     !ownershipConfirmedOnce && owner !is PaneOwner.Mac
-            // Show the overlay whenever we're not the owner and aren't in the
-            // brief silent-takeover handshake. owner == null is treated like
-            // an unknown remote owner (post-reconnect race) so the user always
-            // has a recovery path instead of a blank screen.
+
             if (!isOwnedBySelf && !suppressOverlay && ownershipConfirmedOnce.let { confirmed ->
                     owner != null || confirmed
                 }) {
@@ -252,9 +212,7 @@ fun TerminalView(
                     background = palette.background,
                     onTakeOver = {
                         val p = pane ?: return@TakeOverOverlay
-                        // Prefer the termux view's actual size; fall back to the
-                        // last reported value, then to a sane default. Without a
-                        // fallback the button is dead until layout reports.
+
                         val view = termViewRef.value
                         val emulator = view?.mEmulator
                         val c = emulator?.mColumns?.takeIf { it > 0 } ?: measuredCols ?: 80
@@ -280,7 +238,7 @@ fun TerminalView(
                     termSession.value?.write(bytes, 0, bytes.size)
                 }
             },
-            onCopy = { /* termux view handles selection + copy through its own action mode */ },
+            onCopy = {  },
             canCopy = false,
             onToggleKeyboard = {
                 val view = termViewRef.value ?: return@AccessoryBar
@@ -301,13 +259,6 @@ fun TerminalView(
     }
 }
 
-/**
- * Forwards the termux view's actual cols/rows back to Compose state and to
- * [PaneSession.resize]. Re-attached from `update {}` on every recomposition so
- * the first valid size is reported immediately (the OnLayoutChangeListener
- * alone only fires on geometry changes — not when the emulator finally
- * initializes after `attachSession`).
- */
 private class SizeReporter {
     private var lastCols = 0
     private var lastRows = 0

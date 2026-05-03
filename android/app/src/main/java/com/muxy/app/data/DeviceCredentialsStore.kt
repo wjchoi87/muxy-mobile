@@ -9,12 +9,6 @@ import java.util.UUID
 
 data class DeviceCredentials(val deviceID: UUID, val token: String)
 
-/**
- * Mirrors iOS DeviceCredentialsStore: a single (deviceID, token) pair persisted
- * across launches. UUID generated once; token is 32 random bytes base64-encoded.
- *
- * Storage: EncryptedSharedPreferences (AES256-GCM under a Keystore master key).
- */
 class DeviceCredentialsStore(context: Context) {
     private val prefs = EncryptedSharedPreferences.create(
         context,

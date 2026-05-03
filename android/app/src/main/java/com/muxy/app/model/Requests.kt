@@ -6,11 +6,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
 
-/**
- * Request builders for Phase 2 methods. Each one wraps params in the
- * { type, value } shape that Swift's MuxyParams encoder produces.
- */
-
 private fun emptyParams(typeName: String) = TaggedValue(type = typeName, value = null)
 
 private inline fun <reified T> taggedParams(typeName: String, params: T, serializer: kotlinx.serialization.KSerializer<T>) =
@@ -75,8 +70,6 @@ fun vcsAddWorktreeRequest(id: String, params: VCSAddWorktreeParams) =
 fun vcsRemoveWorktreeRequest(id: String, params: VCSRemoveWorktreeParams) =
     req(id, "vcsRemoveWorktree", taggedParams("vcsRemoveWorktree", params, VCSRemoveWorktreeParams.serializer()))
 
-// --- Result decoders ---
-
 fun decodeProjects(result: TaggedValue?): List<ProjectDTO>? {
     if (result?.type != "projects" || result.value == null) return null
     return MuxyJson.decodeFromJsonElement(ListSerializer(ProjectDTO.serializer()), result.value)
@@ -103,8 +96,6 @@ fun decodeBranches(result: TaggedValue?): VCSBranchesDTO? {
 }
 
 fun isOk(result: TaggedValue?): Boolean = result?.type == "ok"
-
-// --- Event data decoders ---
 
 fun decodeEventWorkspace(data: TaggedValue?): WorkspaceDTO? {
     if (data?.type != "workspace" || data.value == null) return null

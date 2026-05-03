@@ -64,9 +64,6 @@ fun MuxyApp(viewModel: ConnectionViewModel = viewModel()) {
     val theme by viewModel.session.deviceTheme.collectAsState()
     val palette = MuxyTheme.from(theme)
 
-    // Drive system bar icon contrast from the active background. Connection-flow
-    // screens sit on the dark Compose theme; once connected, the Mac-driven
-    // palette takes over and may be light or dark.
     val barBg = if (state is ConnectionState.Connected) palette.background else MaterialTheme.colorScheme.background
     val useLightIcons = barBg.luminance() < 0.5f
     val context = LocalContext.current

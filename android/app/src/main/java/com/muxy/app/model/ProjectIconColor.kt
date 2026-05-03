@@ -1,9 +1,5 @@
 package com.muxy.app.model
 
-/**
- * Port of MuxyShared/ProjectIconColor.swift — the same swatch palette so
- * Android and iOS show identical project colors.
- */
 object ProjectIconColor {
     data class Swatch(val id: String, val name: String, val hex: String) {
         val prefersDarkForeground: Boolean

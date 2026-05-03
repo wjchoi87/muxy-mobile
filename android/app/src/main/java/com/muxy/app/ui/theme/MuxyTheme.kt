@@ -5,10 +5,6 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 import com.muxy.app.data.SessionRepository
 
-/**
- * Resolves a Compose-friendly palette from the device theme broadcast by Mac
- * (RGB integers). Falls back to a sensible dark default until the theme arrives.
- */
 data class Palette(
     val background: Color,
     val foreground: Color,
