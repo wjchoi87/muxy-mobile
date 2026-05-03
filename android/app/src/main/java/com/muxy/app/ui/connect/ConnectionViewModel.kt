@@ -4,12 +4,15 @@ import android.app.Application
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.muxy.app.data.BillingRepository
 import com.muxy.app.data.DeviceCredentials
 import com.muxy.app.data.DeviceCredentialsStore
+import com.muxy.app.data.Entitlement
 import com.muxy.app.data.SavedDevice
 import com.muxy.app.data.SavedDevicesStore
 import com.muxy.app.data.SessionRepository
 import com.muxy.app.data.TerminalPreferencesStore
+import com.muxy.app.data.TrialStore
 import com.muxy.app.model.AuthenticateDeviceParams
 import com.muxy.app.model.PairDeviceParams
 import com.muxy.app.model.TaggedValue
@@ -34,6 +37,7 @@ import kotlin.time.Duration.Companion.seconds
 
 sealed class ConnectionState {
     data object Disconnected : ConnectionState()
+    data object Paywall : ConnectionState()
     data class Connecting(val deviceName: String) : ConnectionState()
     data class AwaitingApproval(val deviceName: String) : ConnectionState()
     data class Connected(val deviceName: String, val clientID: String) : ConnectionState()
@@ -44,6 +48,8 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     private val credentialsStore = DeviceCredentialsStore(app)
     private val devicesStore = SavedDevicesStore(app)
     val terminalPreferences = TerminalPreferencesStore(app)
+    private val trialStore = TrialStore(app)
+    val billing = BillingRepository(app, viewModelScope, trialStore)
     private val client = MuxyClient()
     val session = SessionRepository(client, viewModelScope)
 
@@ -94,9 +100,18 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun connect(device: SavedDevice) {
         lastDevice = device
+        billing.refreshTick()
+        if (billing.entitlement.value is Entitlement.Expired) {
+            _state.value = ConnectionState.Paywall
+            return
+        }
         viewModelScope.launch {
             connectionMutex.withLock { runConnection(device) }
         }
+    }
+
+    fun dismissPaywall() {
+        _state.value = ConnectionState.Disconnected
     }
 
     fun reconnect() {
@@ -182,6 +197,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         }
         _state.value = ConnectionState.Connected(deviceLabel, pairing.clientID)
         session.setMyClientID(pairing.clientID)
+        billing.startTrialIfAbsent()
         if (pairing.themeFg != null && pairing.themeBg != null) {
             session.applyInitialTheme(pairing.themeFg, pairing.themeBg, pairing.themePalette ?: emptyList())
         }
@@ -230,6 +246,11 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun reconnectSilently(device: SavedDevice) {
         if (isReconnecting) return
+        billing.refreshTick()
+        if (billing.entitlement.value is Entitlement.Expired) {
+            _state.value = ConnectionState.Paywall
+            return
+        }
         isReconnecting = true
         viewModelScope.launch {
             try {

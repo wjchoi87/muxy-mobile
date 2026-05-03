@@ -2,21 +2,50 @@
 set -euo pipefail
 
 # Build a signed release AAB locally and optionally upload to Google Play.
-#
-# Usage:
-#   scripts/release.sh <versionName> [versionCode]
-#   scripts/release.sh 0.1.0 1
-#   scripts/release.sh 0.1.0 1 --upload          # uploads to Play internal track
-#   scripts/release.sh 0.1.0 1 --upload --track production
-#
-# Required files (kept out of git):
-#   android/keystore.properties   storeFile=..., storePassword=..., keyAlias=..., keyPassword=...
-#   android/play-service-account.json   (only if --upload is used)
+# Run with -h/--help for full usage.
+
+usage() {
+  cat <<EOF
+Build a signed release AAB locally and optionally upload to Google Play.
+
+Usage:
+  $0 <versionName> [versionCode] [--upload] [--track <track>]
+  $0 -h | --help
+
+Arguments:
+  versionName     X.Y.Z  (required)
+  versionCode     positive integer (optional; defaults to current Unix timestamp)
+
+Options:
+  --upload              Upload the resulting AAB to Play after building.
+  --track <track>       Play track for --upload. Default: internal.
+                        Allowed: internal | alpha | beta | production
+  -h, --help            Show this help and exit.
+
+Examples:
+  $0 0.9.0 5                        # beta build, billing OFF (no upload)
+  $0 1.0.0 6 --upload               # GA build, billing ON, upload to internal
+  $0 1.0.1 7 --upload --track production
+
+Billing rule:
+  Determined by versionName. Major >= 1 enables paywall + 3-day trial.
+  0.x.y stays free (intended for beta / closed testing).
+  Override with -PbillingEnabled=true|false if needed.
+
+Required files (kept out of git):
+  android/keystore.properties           storeFile=..., storePassword=..., keyAlias=..., keyPassword=...
+  android/play-service-account.json     only required for --upload
+EOF
+}
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <versionName> [versionCode] [--upload] [--track <track>]"
+  usage
   exit 1
 fi
+
+case "$1" in
+  -h|--help) usage; exit 0 ;;
+esac
 
 VERSION_NAME="$1"
 shift

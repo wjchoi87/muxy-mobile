@@ -23,6 +23,17 @@ fun resolveSigningFile(propKey: String, envKey: String): java.io.File? {
     return if (asFile.isAbsolute) asFile else rootProject.file(raw)
 }
 
+fun isBillingEnabledFor(versionName: String): Boolean {
+    (project.findProperty("billingEnabled") as String?)?.toBooleanStrictOrNull()?.let { return it }
+    return true
+}
+
+fun isBillingEnforcedFor(versionName: String): Boolean {
+    (project.findProperty("billingEnforced") as String?)?.toBooleanStrictOrNull()?.let { return it }
+    val major = versionName.substringBefore('.').toIntOrNull() ?: return false
+    return major >= 1
+}
+
 android {
     namespace = "com.muxy.app"
     compileSdk = 35
@@ -32,8 +43,15 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
+        val resolvedVersionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
+        versionName = resolvedVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val billingEnabled = isBillingEnabledFor(resolvedVersionName)
+        val billingEnforced = isBillingEnforcedFor(resolvedVersionName)
+        buildConfigField("boolean", "BILLING_ENABLED", billingEnabled.toString())
+        buildConfigField("boolean", "BILLING_ENFORCED", billingEnforced.toString())
+        logger.lifecycle("Muxy: versionName=$resolvedVersionName billingEnabled=$billingEnabled billingEnforced=$billingEnforced")
     }
 
     signingConfigs {
@@ -110,6 +128,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    implementation("com.android.billingclient:billing-ktx:7.1.1")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
 

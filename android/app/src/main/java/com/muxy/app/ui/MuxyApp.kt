@@ -37,6 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.muxy.app.ui.connect.ConnectScreen
 import com.muxy.app.ui.connect.ConnectionState
 import com.muxy.app.ui.connect.ConnectionViewModel
+import com.muxy.app.ui.paywall.PaywallScreen
 import com.muxy.app.ui.projects.ProjectsScreen
 import com.muxy.app.ui.settings.SettingsScreen
 import com.muxy.app.ui.theme.MuxyTheme
@@ -79,6 +80,10 @@ fun MuxyApp(viewModel: ConnectionViewModel = viewModel()) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         when (val s = state) {
             ConnectionState.Disconnected -> ConnectScreen(viewModel, onOpenSettings = { showSettings = true })
+            ConnectionState.Paywall -> {
+                val ent by viewModel.billing.entitlement.collectAsState()
+                PaywallScreen(viewModel.billing, ent)
+            }
             is ConnectionState.Connecting -> CenteredStatus(s.deviceName, "Connecting…")
             is ConnectionState.AwaitingApproval -> AwaitingApproval(s.deviceName) { viewModel.disconnect() }
             is ConnectionState.Connected -> {

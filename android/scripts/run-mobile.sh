@@ -8,6 +8,11 @@
 #   scripts/run-mobile.sh restart               # stop, then build + install + launch
 #   scripts/run-mobile.sh logs                  # tail logcat for the app
 #
+# Options (combine with any of the above):
+#   --version X.Y.Z    Override versionName for this build. Major >=1 enables billing.
+#                      Example: scripts/run-mobile.sh --version 1.0.0  (paywall enabled)
+#                               scripts/run-mobile.sh --version 0.9.0  (free, billing off)
+#
 # Tablet AVDs are created on first use (reusing the system image already
 # installed for the default emulator).
 set -euo pipefail
@@ -26,6 +31,31 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APK="$ROOT_DIR/app/build/outputs/apk/debug/app-debug.apk"
 
 DEFAULT_AVD="${MUXY_AVD:-muxy_pixel}"
+
+VERSION_OVERRIDE=""
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      VERSION_OVERRIDE="$2"
+      shift 2
+      ;;
+    --version=*)
+      VERSION_OVERRIDE="${1#--version=}"
+      shift
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${ARGS[@]}"
+
+if [[ -n "$VERSION_OVERRIDE" && ! "$VERSION_OVERRIDE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Error: --version must be X.Y.Z (got '$VERSION_OVERRIDE')" >&2
+  exit 1
+fi
 
 cmd="${1:-run}"
 AVD_NAME="$DEFAULT_AVD"
@@ -227,11 +257,18 @@ else
   fi
 fi
 
+GRADLE_VERSION_ARGS=()
+if [[ -n "$VERSION_OVERRIDE" ]]; then
+  echo "Using versionName=$VERSION_OVERRIDE for this build"
+  GRADLE_VERSION_ARGS+=("-PversionName=$VERSION_OVERRIDE")
+fi
+
 echo "Building debug APK..."
 GRADLE_USER_HOME="$HOME/.gradle" \
 JAVA_HOME="${JAVA_HOME:-/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home}" \
   "$ROOT_DIR/gradlew" -q -p "$ROOT_DIR" \
     -Pandroid.builder.sdkDownload=false \
+    "${GRADLE_VERSION_ARGS[@]}" \
     assembleDebug
 
 if [ ! -f "$APK" ]; then
