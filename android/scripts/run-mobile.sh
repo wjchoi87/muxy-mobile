@@ -1,22 +1,57 @@
 #!/usr/bin/env bash
-# Build, install, and launch the Android Muxy client on the muxy_pixel emulator.
+# Build, install, and launch the Android Muxy client on an emulator.
 # Usage:
-#   scripts/run-mobile.sh              # build + install + launch
-#   scripts/run-mobile.sh stop         # force-stop the app on the emulator
-#   scripts/run-mobile.sh restart      # stop, then build + install + launch
-#   scripts/run-mobile.sh logs         # tail logcat for the app
+#   scripts/run-mobile.sh                       # build + install + launch on default (phone)
+#   scripts/run-mobile.sh tablet-7              # 7-inch tablet (Nexus 7)
+#   scripts/run-mobile.sh tablet-10             # 10-inch tablet (Pixel Tablet)
+#   scripts/run-mobile.sh stop                  # force-stop the app on the running emulator
+#   scripts/run-mobile.sh restart               # stop, then build + install + launch
+#   scripts/run-mobile.sh logs                  # tail logcat for the app
+#
+# Tablet AVDs are created on first use (reusing the system image already
+# installed for the default emulator).
 set -euo pipefail
 
-SDK="${ANDROID_HOME:-/Volumes/SSD1/Storage/android-sdk}"
+if [[ -z "${ANDROID_HOME:-}" ]]; then
+  echo "ANDROID_HOME is not set. Point it at your Android SDK." >&2
+  exit 1
+fi
+SDK="$ANDROID_HOME"
 ADB="$SDK/platform-tools/adb"
 EMULATOR="$SDK/emulator/emulator"
-AVD_NAME="${MUXY_AVD:-muxy_pixel}"
+AVDMANAGER="$SDK/cmdline-tools/latest/bin/avdmanager"
 PKG="com.muxy.app"
 ACTIVITY="$PKG/.MainActivity"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APK="$ROOT_DIR/app/build/outputs/apk/debug/app-debug.apk"
 
+DEFAULT_AVD="${MUXY_AVD:-muxy_pixel}"
+
 cmd="${1:-run}"
+AVD_NAME="$DEFAULT_AVD"
+NEW_AVD_LCD_W=""
+NEW_AVD_LCD_H=""
+NEW_AVD_DENSITY=""
+NEW_AVD_DEVICE=""
+
+case "$cmd" in
+  tablet-7)
+    AVD_NAME="muxy_tablet_7"
+    NEW_AVD_LCD_W="1200"
+    NEW_AVD_LCD_H="1920"
+    NEW_AVD_DENSITY="240"
+    NEW_AVD_DEVICE="Nexus 7"
+    cmd="run"
+    ;;
+  tablet-10)
+    AVD_NAME="muxy_tablet_10"
+    NEW_AVD_LCD_W="1600"
+    NEW_AVD_LCD_H="2560"
+    NEW_AVD_DENSITY="320"
+    NEW_AVD_DEVICE="pixel_tablet"
+    cmd="run"
+    ;;
+esac
 
 stop_app() {
   if "$ADB" get-state >/dev/null 2>&1; then
@@ -41,20 +76,75 @@ case "$cmd" in
     ;;
   *)
     echo "Unknown command: $cmd"
-    echo "Usage: $0 [run|stop|restart|logs]"
+    echo "Usage: $0 [run|tablet-7|tablet-10|stop|restart|logs]"
     exit 1
     ;;
 esac
 
-# 1. Ensure a booted emulator is available.
-EMU_LOG=/tmp/muxy-emulator.log
+ensure_avd() {
+  local name="$1" lcd_w="$2" lcd_h="$3" lcd_density="$4" device_name="$5"
+  ANDROID_HOME="$SDK" "$EMULATOR" -list-avds 2>/dev/null | grep -qx "$name" && return 0
+
+  local avd_root="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
+  local src_avd="$avd_root/$DEFAULT_AVD.avd"
+  local src_ini="$avd_root/$DEFAULT_AVD.ini"
+  if [[ ! -d "$src_avd" || ! -f "$src_ini" ]]; then
+    echo "Default AVD '$DEFAULT_AVD' not found at $src_avd; cannot clone." >&2
+    echo "Create '$DEFAULT_AVD' first (Android Studio Device Manager), then retry." >&2
+    return 1
+  fi
+
+  echo "Cloning '$DEFAULT_AVD' -> '$name' (${lcd_w}x${lcd_h} @ ${lcd_density}dpi, device: $device_name)..."
+  local dst_avd="$avd_root/$name.avd"
+  local dst_ini="$avd_root/$name.ini"
+  rm -rf "$dst_avd" "$dst_ini"
+  cp -R "$src_avd" "$dst_avd"
+  sed "s|$DEFAULT_AVD|$name|g" "$src_ini" > "$dst_ini"
+
+  rm -f "$dst_avd"/userdata-qemu.img* "$dst_avd"/snapshots.img 2>/dev/null
+  rm -rf "$dst_avd/snapshots" 2>/dev/null
+
+  local cfg="$dst_avd/config.ini"
+  set_avd_prop() {
+    local key="$1" value="$2"
+    if grep -qE "^${key}[[:space:]]*=" "$cfg"; then
+      sed -i.bak -E "s|^${key}[[:space:]]*=.*|${key}=${value}|" "$cfg"
+    else
+      echo "${key}=${value}" >> "$cfg"
+    fi
+  }
+  set_avd_prop "AvdId" "$name"
+  set_avd_prop "avd.ini.displayname" "$name"
+  set_avd_prop "hw.lcd.width" "$lcd_w"
+  set_avd_prop "hw.lcd.height" "$lcd_h"
+  set_avd_prop "hw.lcd.density" "$lcd_density"
+  set_avd_prop "hw.device.name" "$device_name"
+  set_avd_prop "hw.initialOrientation" "portrait"
+  set_avd_prop "fastboot.forceColdBoot" "yes"
+  set_avd_prop "fastboot.forceFastBoot" "no"
+  sed -i.bak -E "/^hw\.device\.hash2[[:space:]]*=/d" "$cfg"
+  rm -f "$cfg.bak"
+  echo "  created."
+}
+
+if [[ -n "$NEW_AVD_LCD_W" ]]; then
+  ensure_avd "$AVD_NAME" "$NEW_AVD_LCD_W" "$NEW_AVD_LCD_H" "$NEW_AVD_DENSITY" "$NEW_AVD_DEVICE" || exit 1
+fi
+
+EMU_LOG="/tmp/muxy-emulator-$AVD_NAME.log"
 
 is_booted() {
-  # Returns 0 if at least one device reports boot_completed=1.
   local serial
   serial="$("$ADB" devices 2>/dev/null | awk 'NR>1 && $2=="device" {print $1; exit}')"
   [ -n "$serial" ] || return 1
   [ "$("$ADB" -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]
+}
+
+booted_avd_name() {
+  local serial
+  serial="$("$ADB" devices 2>/dev/null | awk 'NR>1 && $2=="device" && $1 ~ /^emulator-/ {print $1; exit}')"
+  [ -n "$serial" ] || return 1
+  "$ADB" -s "$serial" emu avd name 2>/dev/null | head -n 1 | tr -d '\r'
 }
 
 wait_for_boot() {
@@ -76,11 +166,9 @@ wait_for_boot() {
 
 kill_emulators() {
   echo "Killing existing emulators and resetting adb..."
-  # Ask each connected emulator to shut down cleanly.
   "$ADB" devices 2>/dev/null | awk 'NR>1 && $1 ~ /^emulator-/ {print $1}' | while read -r serial; do
     [ -n "$serial" ] && "$ADB" -s "$serial" emu kill >/dev/null 2>&1 || true
   done
-  # Force-kill any lingering qemu/emulator processes.
   pkill -f "qemu-system" 2>/dev/null || true
   pkill -f "$SDK/emulator/" 2>/dev/null || true
   "$ADB" kill-server >/dev/null 2>&1 || true
@@ -89,24 +177,18 @@ kill_emulators() {
 }
 
 boot_emulator() {
-  # Verify the AVD actually exists before launching, so we fail fast with a
-  # clear message instead of waiting on an emulator that already exited.
   if ! ANDROID_HOME="$SDK" "$EMULATOR" -list-avds 2>/dev/null | grep -qx "$AVD_NAME"; then
     echo "AVD '$AVD_NAME' not found. Available AVDs:"
     ANDROID_HOME="$SDK" "$EMULATOR" -list-avds 2>/dev/null | sed 's/^/  /'
-    echo "Set MUXY_AVD or ANDROID_AVD_HOME to point at the right location."
     return 1
   fi
 
   echo "Starting emulator '$AVD_NAME'..."
-  # Do NOT override ANDROID_AVD_HOME — a blank value hides AVDs stored in
-  # non-default locations (e.g. /Volumes/SSD2/Storage/android-avd).
   ANDROID_HOME="$SDK" \
-    "$EMULATOR" -avd "$AVD_NAME" -no-snapshot-save >"$EMU_LOG" 2>&1 &
+    "$EMULATOR" -avd "$AVD_NAME" -no-snapshot-save -no-snapshot-load >"$EMU_LOG" 2>&1 &
   local emu_pid=$!
   echo "  emulator pid=$emu_pid  log=$EMU_LOG"
 
-  # Give the emulator a moment to either start or exit immediately on error.
   sleep 2
   if ! kill -0 "$emu_pid" 2>/dev/null; then
     echo "Emulator process exited immediately. Last 20 log lines:"
@@ -123,19 +205,28 @@ boot_emulator() {
 
 "$ADB" start-server >/dev/null 2>&1 || true
 
+CURRENT_AVD=""
 if is_booted; then
-  echo "Emulator already booted; reusing it."
-else
-  # Either no device, or a half-booted/offline emulator. Reset and start fresh.
+  CURRENT_AVD="$(booted_avd_name 2>/dev/null || true)"
+fi
+
+if [[ -n "$CURRENT_AVD" && "$CURRENT_AVD" == "$AVD_NAME" ]]; then
+  echo "Emulator '$AVD_NAME' already booted; reusing it."
+elif [[ -n "$CURRENT_AVD" && "$CURRENT_AVD" != "$AVD_NAME" ]]; then
+  echo "A different AVD is booted ('$CURRENT_AVD'); switching to '$AVD_NAME'."
   kill_emulators
   if ! boot_emulator; then
-    # One retry after another full reset, in case the first attempt got stuck.
+    kill_emulators
+    boot_emulator || { echo "Giving up on emulator boot."; exit 1; }
+  fi
+else
+  kill_emulators
+  if ! boot_emulator; then
     kill_emulators
     boot_emulator || { echo "Giving up on emulator boot."; exit 1; }
   fi
 fi
 
-# 2. Build debug APK.
 echo "Building debug APK..."
 GRADLE_USER_HOME="$HOME/.gradle" \
 JAVA_HOME="${JAVA_HOME:-/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home}" \
@@ -148,7 +239,6 @@ if [ ! -f "$APK" ]; then
   exit 1
 fi
 
-# 3. Install + launch.
 echo "Installing $APK"
 "$ADB" install -r "$APK" >/dev/null
 echo "Launching $ACTIVITY"

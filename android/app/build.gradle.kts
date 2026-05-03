@@ -1,8 +1,26 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun resolveSigningValue(propKey: String, envKey: String): String? =
+    keystoreProperties.getProperty(propKey) ?: System.getenv(envKey)
+
+fun resolveSigningFile(propKey: String, envKey: String): java.io.File? {
+    val raw = resolveSigningValue(propKey, envKey) ?: return null
+    val asFile = File(raw)
+    return if (asFile.isAbsolute) asFile else rootProject.file(raw)
 }
 
 android {
@@ -13,15 +31,37 @@ android {
         applicationId = "com.muxy.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            val storeFileResolved = resolveSigningFile("storeFile", "ANDROID_KEYSTORE_FILE")
+            val storePasswordResolved = resolveSigningValue("storePassword", "ANDROID_KEY_STORE_PASSWORD")
+            val keyAliasResolved = resolveSigningValue("keyAlias", "ANDROID_KEY_ALIAS")
+            val keyPasswordResolved = resolveSigningValue("keyPassword", "ANDROID_KEY_PASSWORD")
+            if (storeFileResolved != null && storePasswordResolved != null && keyAliasResolved != null && keyPasswordResolved != null) {
+                storeFile = storeFileResolved
+                storePassword = storePasswordResolved
+                keyAlias = keyAliasResolved
+                keyPassword = keyPasswordResolved
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
+            signingConfigs.getByName("release").storeFile?.let {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

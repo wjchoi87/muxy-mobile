@@ -45,12 +45,19 @@ Open `android/` in Android Studio for development.
 - `ios-checks` — SwiftFormat, SwiftLint, simulator build on every PR touching `ios/**`.
 - `ios-release` — manual `workflow_dispatch`; archives, signs, uploads to App Store Connect.
 - `android-checks` — Gradle lint, debug assemble, unit tests on every PR touching `android/**`.
-- `android-release` — scaffold; signing + Play Store upload are TODO (see workflow comments).
+- `android-release` — manual `workflow_dispatch`; builds a signed AAB and (optionally) uploads to Play Store as a draft.
 
 iOS release secrets carried over from the original repo:
 `APPLE_DISTRIBUTION_CERTIFICATE`, `APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD`,
 `KEYCHAIN_PASSWORD`, `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_KEY_ID`,
 `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_PROVISIONING_PROFILE`, `APPLE_TEAM_ID`.
+
+Android release secrets:
+`ANDROID_SIGNING_KEY_BASE64` (base64 of `upload-keystore.jks`),
+`ANDROID_KEY_STORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`,
+and optional `PLAY_SERVICE_ACCOUNT_JSON` (raw JSON; if absent the Play upload step is skipped).
+
+For local manual releases, see `android/scripts/release.sh` and `android/RELEASE.md`.
 
 ## Migration
 

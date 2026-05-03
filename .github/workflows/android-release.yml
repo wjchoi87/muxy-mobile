@@ -1,12 +1,11 @@
 name: Release Android
 
-# SCAFFOLD — fill in signing + Play Store upload when the app is ready to ship.
-# Required secrets to add later:
-#   ANDROID_SIGNING_KEY_BASE64   - base64 of upload-keystore.jks
+# Required secrets:
+#   ANDROID_SIGNING_KEY_BASE64   base64 of upload-keystore.jks
 #   ANDROID_KEY_STORE_PASSWORD
 #   ANDROID_KEY_ALIAS
 #   ANDROID_KEY_PASSWORD
-#   PLAY_SERVICE_ACCOUNT_JSON    - base64 service-account JSON for Play upload (optional, can do manually first)
+#   PLAY_SERVICE_ACCOUNT_JSON    Play service-account JSON (raw, not base64). Optional; if absent, Play upload is skipped.
 
 on:
   workflow_dispatch:
@@ -19,6 +18,16 @@ on:
         description: "Version code (integer, defaults to run number)"
         required: false
         type: string
+      track:
+        description: "Play Store track"
+        required: false
+        type: choice
+        default: internal
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
 
 jobs:
   release-android:
@@ -66,18 +75,26 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # TODO: enable when keystore secrets are configured.
-      # - name: Decode signing key
-      #   env:
-      #     SIGNING_KEY_BASE64: ${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
-      #   run: |
-      #     echo "$SIGNING_KEY_BASE64" | base64 --decode > app/upload-keystore.jks
-
-      - name: Build Release AAB (unsigned for now)
+      - name: Decode signing key
         env:
-          ORG_GRADLE_PROJECT_versionName: ${{ steps.validate.outputs.version_name }}
-          ORG_GRADLE_PROJECT_versionCode: ${{ steps.validate.outputs.version_code }}
-        run: ./gradlew bundleRelease
+          SIGNING_KEY_BASE64: ${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
+        run: |
+          if [[ -z "$SIGNING_KEY_BASE64" ]]; then
+            echo "Error: ANDROID_SIGNING_KEY_BASE64 secret is required"
+            exit 1
+          fi
+          echo "$SIGNING_KEY_BASE64" | base64 --decode > app/upload-keystore.jks
+
+      - name: Build signed Release AAB
+        env:
+          ANDROID_KEYSTORE_FILE: app/upload-keystore.jks
+          ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew bundleRelease \
+            -PversionName=${{ steps.validate.outputs.version_name }} \
+            -PversionCode=${{ steps.validate.outputs.version_code }}
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
@@ -86,14 +103,27 @@ jobs:
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
 
-      # TODO: enable Play Store upload once a service account is configured.
-      # - name: Upload to Play Store
-      #   uses: r0adkll/upload-google-play@v1
-      #   with:
-      #     serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-      #     packageName: com.muxy.app
-      #     releaseFiles: android/app/build/outputs/bundle/release/*.aab
-      #     track: internal
+      - name: Check Play upload secret
+        id: play_secret
+        env:
+          PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [[ -n "$PLAY_JSON" ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "PLAY_SERVICE_ACCOUNT_JSON not set; skipping Play upload."
+          fi
+
+      - name: Upload to Play Store
+        if: steps.play_secret.outputs.present == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.muxy.app
+          releaseFiles: android/app/build/outputs/bundle/release/*.aab
+          track: ${{ inputs.track }}
+          status: draft
 
       - name: Create GitHub Release
         working-directory: .

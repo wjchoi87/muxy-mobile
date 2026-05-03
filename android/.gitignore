@@ -10,3 +10,9 @@
 local.properties
 /app/build
 /app/release
+keystore.properties
+*.jks
+*.keystore
+play-service-account.json
+.venv-play/
+release-artifacts/
