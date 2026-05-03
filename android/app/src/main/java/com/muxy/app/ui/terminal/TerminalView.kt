@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.muxy.app.data.PaneSession
 import com.muxy.app.data.SessionRepository
+import com.muxy.app.data.TerminalPreferencesStore
 import com.muxy.app.model.PaneOwner
 import com.muxy.app.ui.theme.MuxyTheme
 import com.termux.terminal.TerminalEmulator
@@ -52,8 +53,7 @@ import com.termux.terminal.TextStyle
 import com.termux.view.TerminalView as TermuxTerminalView
 import kotlinx.coroutines.launch
 
-private const val FONT_PATH = "fonts/JetBrainsMonoNerdFontMono-Regular.ttf"
-private const val FONT_SIZE_SP = 13
+private const val NERD_FONT_PATH = "fonts/JetBrainsMonoNerdFontMono-Regular.ttf"
 
 /**
  * Top-level terminal pane. Hosts the vendored termux [TermuxTerminalView] which
@@ -68,6 +68,7 @@ private const val FONT_SIZE_SP = 13
 fun TerminalView(
     paneID: String,
     session: SessionRepository,
+    preferences: TerminalPreferencesStore,
     modifier: Modifier = Modifier,
 ) {
     val theme by session.deviceTheme.collectAsState()
@@ -77,7 +78,9 @@ fun TerminalView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val typeface = remember { resolveTypeface(context) }
+    val prefs by preferences.flow.collectAsState()
+    val nerdTypeface = remember { resolveNerdTypeface(context) }
+    val typeface = if (prefs.useNerdFont && nerdTypeface != null) nerdTypeface else Typeface.MONOSPACE
 
     var pane by remember(paneID) { mutableStateOf<PaneSession?>(null) }
     val sessionClient = remember { MuxyTerminalSessionClient(context) }
@@ -149,7 +152,18 @@ fun TerminalView(
         if (isOwnedBySelf) ownershipConfirmedOnce = true
     }
 
-    LaunchedEffect(paneID, pane, measuredCols, measuredRows) {
+    // Reset the takeover guard whenever the pane has no known owner (e.g.
+    // right after a reconnect cleared paneOwners). Without this, the
+    // already-mounted TerminalView keeps `autoTakenPaneID == paneID` from its
+    // initial mount and never re-takes — the surface stays at alpha=0 with no
+    // overlay (overlay requires owner != null), producing a blank screen.
+    LaunchedEffect(owner) {
+        if (owner == null && autoTakenPaneID == paneID && !isOwnedBySelf) {
+            autoTakenPaneID = null
+        }
+    }
+
+    LaunchedEffect(paneID, pane, measuredCols, measuredRows, owner) {
         val p = pane ?: return@LaunchedEffect
         val c = measuredCols ?: return@LaunchedEffect
         val r = measuredRows ?: return@LaunchedEffect
@@ -157,8 +171,12 @@ fun TerminalView(
         // Auto-takeover policy:
         //  - If the user just opened a project or switched tabs, takeover
         //    silently regardless of current owner (userInitiatedMount).
-        //  - Otherwise, never auto-takeover from the Mac — the user must tap
-        //    "Take Over" in the overlay.
+        //  - If we don't know the owner yet (post-reconnect, before the
+        //    server has re-broadcast paneOwnershipChanged), silently re-take.
+        //    Otherwise the user is stuck on a blank screen until they switch
+        //    tabs.
+        //  - If the Mac currently owns it on a non-user-initiated mount,
+        //    require explicit "Take Over" via the overlay.
         if (!userInitiatedMount && owner is PaneOwner.Mac) {
             autoTakenPaneID = paneID // suppress further attempts for this mount
             return@LaunchedEffect
@@ -183,7 +201,7 @@ fun TerminalView(
                     factory = { ctx ->
                         TermuxTerminalView(ctx, null).apply {
                             setTerminalViewClient(viewClient)
-                            setTextSize(spToPx(ctx, FONT_SIZE_SP).toInt())
+                            setTextSize(spToPx(ctx, prefs.fontSize).toInt())
                             setTypeface(typeface)
                             termSession.value?.let { attachSession(it) }
                             applyTheme(this, theme?.fg, theme?.bg, theme?.palette)
@@ -197,6 +215,8 @@ fun TerminalView(
                     },
                     update = { view ->
                         termSession.value?.let { view.attachSession(it) }
+                        view.setTextSize(spToPx(context, prefs.fontSize).toInt())
+                        view.setTypeface(typeface)
                         applyTheme(view, theme?.fg, theme?.bg, theme?.palette)
                         sizeReporter.attach(view) { c, r ->
                             measuredCols = c
@@ -213,12 +233,21 @@ fun TerminalView(
             // Suppress overlay only during the brief silent-takeover handshake:
             // user-initiated mount, takeover RPC sent, but server hasn't yet
             // confirmed us as owner. Once confirmed once, normal overlay rules
-            // apply — including showing it when the Mac steals back.
+            // apply. If the owner is already known to be the Mac, never
+            // suppress — otherwise a Mac steal-back that races our pending
+            // takeover leaves the screen blank with no way to recover.
             val suppressOverlay =
-                userInitiatedMount && autoTakenPaneID == paneID && !ownershipConfirmedOnce
-            if (!isOwnedBySelf && owner != null && !suppressOverlay) {
+                userInitiatedMount && autoTakenPaneID == paneID &&
+                    !ownershipConfirmedOnce && owner !is PaneOwner.Mac
+            // Show the overlay whenever we're not the owner and aren't in the
+            // brief silent-takeover handshake. owner == null is treated like
+            // an unknown remote owner (post-reconnect race) so the user always
+            // has a recovery path instead of a blank screen.
+            if (!isOwnedBySelf && !suppressOverlay && ownershipConfirmedOnce.let { confirmed ->
+                    owner != null || confirmed
+                }) {
                 TakeOverOverlay(
-                    ownerName = owner.displayName,
+                    ownerName = owner?.displayName ?: "Mac",
                     foreground = palette.foreground,
                     background = palette.background,
                     onTakeOver = {
@@ -337,9 +366,8 @@ private fun applyTheme(
 private fun spToPx(context: Context, sp: Int): Float =
     sp * context.resources.displayMetrics.scaledDensity
 
-private fun resolveTypeface(context: Context): Typeface =
-    runCatching { Typeface.createFromAsset(context.assets, FONT_PATH) }
-        .getOrDefault(Typeface.MONOSPACE)
+private fun resolveNerdTypeface(context: Context): Typeface? =
+    runCatching { Typeface.createFromAsset(context.assets, NERD_FONT_PATH) }.getOrNull()
 
 @Composable
 private fun TakeOverOverlay(
