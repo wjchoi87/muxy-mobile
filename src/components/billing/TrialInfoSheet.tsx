@@ -93,7 +93,7 @@ export function TrialInfoSheet({ visible, onClose }: Props) {
   const bullets = copy.sheetBullets({ entitlement, price });
   const ctaLabel = copy.primaryCtaLabel({ entitlement, price });
   const showCta = entitlement.kind !== 'unlocked';
-  const ctaDisabled = !price || purchasing;
+  const ctaDisabled = purchasing;
 
   const handleBuy = async () => {
     if (entitlement.kind === 'unlocked') {

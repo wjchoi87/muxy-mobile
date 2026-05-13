@@ -36,7 +36,7 @@ export function PaywallScreen() {
   const title = copy.paywallTitle(entitlement);
   const subtitle = copy.paywallSubtitle(entitlement);
   const ctaLabel = copy.paywallButtonLabel({ entitlement, price });
-  const ctaDisabled = !price || purchasing;
+  const ctaDisabled = purchasing;
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.surface.primary, paddingTop: insets.top }]}>

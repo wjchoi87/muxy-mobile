@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 
-import { BILLING_ENFORCED } from './entitlement';
 import {
   buyUnlock,
   connect,
@@ -15,7 +14,6 @@ import { loadTrialStartedAt, saveTrialStartedAt } from './trialStore';
 
 type State = {
   ready: boolean;
-  enforced: boolean;
   productId: string;
   productPrice: string | null;
   purchased: boolean;
@@ -39,7 +37,6 @@ export type BillingStore = State & Actions;
 
 const initialState: State = {
   ready: false,
-  enforced: BILLING_ENFORCED,
   productId: PRODUCT_ID,
   productPrice: null,
   purchased: false,
@@ -63,16 +60,6 @@ export const useBillingStore = create<BillingStore>()((set, get) => ({
 
     const trialStartedAt = await loadTrialStartedAt();
     set({ trialStartedAt });
-
-    if (!BILLING_ENFORCED) {
-      try {
-        await connect();
-        const product = await fetchUnlockProduct();
-        if (product) set({ productPrice: product.displayPrice });
-      } catch {}
-      set({ ready: true });
-      return;
-    }
 
     try {
       await connect();
@@ -115,7 +102,6 @@ export const useBillingStore = create<BillingStore>()((set, get) => ({
   },
 
   refresh: async () => {
-    if (!BILLING_ENFORCED) return;
     try {
       const existing = await queryUnlockPurchases();
       const valid = existing.find(isPurchased);
@@ -129,7 +115,6 @@ export const useBillingStore = create<BillingStore>()((set, get) => ({
   },
 
   startTrialIfAbsent: async () => {
-    if (!BILLING_ENFORCED) return;
     if (get().trialStartedAt != null) return;
     const now = Date.now();
     await saveTrialStartedAt(now);
