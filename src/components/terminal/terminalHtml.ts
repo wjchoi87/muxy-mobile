@@ -47,7 +47,7 @@ export function buildTerminalHtml(init: TerminalInitOptions): string {
 <style>
 ${XTERM_CSS}
 html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: ${init.theme.background}; overflow: hidden; -webkit-text-size-adjust: 100%; }
-#root { position: absolute; inset: 0; padding: 8px; box-sizing: border-box; }
+#root { position: absolute; inset: 0; padding: 8px; box-sizing: border-box; overflow: hidden; }
 .xterm, .xterm-screen { user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
 .xterm-viewport { background-color: transparent !important; }
 .xterm-screen canvas { pointer-events: none !important; }
@@ -61,6 +61,7 @@ html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: ${ini
   font-feature-settings: "liga" 0, "calt" 0;
   font-variant-ligatures: none;
 }
+.xterm-viewport { overflow: hidden !important; }
 </style>
 </head>
 <body>
@@ -490,7 +491,7 @@ html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: ${ini
   }
   function sendArrowKeys(lines) {
     if (lines === 0) return;
-    var seq = lines > 0 ? '\\x1b[B' : '\\x1b[A';
+    var seq = lines > 0 ? '\x1bOB' : '\x1bOA';
     var count = Math.abs(lines);
     var out = '';
     for (var i = 0; i < count; i++) out += seq;
@@ -616,6 +617,7 @@ html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: ${ini
 
   function startMomentum(initialVelocity, clientX, clientY) {
     cancelMomentum();
+    if (isAltBuffer()) return;
     var velocity = initialVelocity;
     var lastTime = performance.now();
     var step = function () {
@@ -663,7 +665,19 @@ html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: ${ini
 
     if (totalDy > totalDx) {
       var dy = lastTouchY - ty;
-      if (dy !== 0) queueScrollPixels(dy, tx, ty);
+      if (dy !== 0) {
+        if (isAltBuffer()) {
+          var lineHeight = getLineHeightPx();
+          if (lineHeight > 0) {
+            var lines = (dy / lineHeight);
+            if (Math.abs(lines) >= 0.5) {
+              queueLines(Math.round(lines), tx, ty);
+            }
+          }
+        } else {
+          queueScrollPixels(dy, tx, ty);
+        }
+      }
       lastTouchX = tx;
       lastTouchY = ty;
       velocitySamples.push({ t: performance.now(), y: ty });

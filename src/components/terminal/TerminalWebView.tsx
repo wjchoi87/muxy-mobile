@@ -195,6 +195,7 @@ export const TerminalWebView = forwardRef<TerminalWebViewHandle, Props>(function
         javaScriptEnabled
         domStorageEnabled={false}
         scrollEnabled={false}
+        nestedScrollEnabled={true}
         bounces={false}
         overScrollMode="never"
         scalesPageToFit={false}
@@ -205,6 +206,7 @@ export const TerminalWebView = forwardRef<TerminalWebViewHandle, Props>(function
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
         androidLayerType="hardware"
+        allowsInlineMediaPlayback={false}
         style={[styles.web, { backgroundColor: theme.background }]}
         containerStyle={styles.web}
       />
